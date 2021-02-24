@@ -7,6 +7,10 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.OpenApi.Models;
+using Ardalis.ApiEndpoints;
+using Microsoft.AspNetCore.Mvc;
+using Swashbuckle.AspNetCore.Annotations;
 
 namespace MLNETHttpApi
 {
@@ -16,16 +20,31 @@ namespace MLNETHttpApi
         {
             WebHost.CreateDefaultBuilder()
                 .ConfigureServices(services => {
+                    // Add controllers
+                    services.AddControllers();
+
+                    // Add Swagger
+                    services.AddSwaggerGen(c => {
+                        c.SwaggerDoc("v1", new OpenApiInfo { Title = "My Sentiment Analysis API", Version = "v1" });
+                        c.EnableAnnotations();
+                    });  
+
                     // Register PredictionEnginePool service 
                     services.AddPredictionEnginePool<Input,Output>()
                         .FromUri("https://github.com/dotnet/samples/raw/master/machine-learning/models/sentimentanalysis/sentiment_model.zip");
                 })
                 .Configure(app => {
+                        //HTTPS Redirection
                         app.UseHttpsRedirection();
+
+                        //Swagger config
+                        app.UseSwagger();
+                        app.UseSwaggerUI(c => c.SwaggerEndpoint("/swagger/v1/swagger.json", "My Sentiment Analysis API V1"));
+
+                        // Routing config
                         app.UseRouting();
-                        app.UseEndpoints(routes => {
-                            // Define prediction endpoint
-                            routes.MapPost("/predict", PredictHandler);
+                        app.UseEndpoints(endpoints => {
+                            endpoints.MapControllers();
                         });                        
                 })
                 .Build()
@@ -50,10 +69,10 @@ namespace MLNETHttpApi
 
     public class Input
     {
-        public string SentimentText;
+        public string SentimentText {get;set;}
 
         [ColumnName("Label")]
-        public bool Sentiment;
+        public bool Sentiment {get;set;}
     }
 
     public class Output
@@ -64,5 +83,29 @@ namespace MLNETHttpApi
         public float Probability { get; set; }
 
         public float Score { get; set; }
-    }    
+    }
+
+    // Configure API prediction handler
+    public class Predict : BaseEndpoint
+        .WithRequest<Input>
+        .WithResponse<Output>
+    {
+        private readonly PredictionEnginePool<Input,Output> _predictionEnginePool;
+        
+        public Predict(PredictionEnginePool<Input,Output> predictionEnginePool)
+        {
+            _predictionEnginePool = predictionEnginePool;
+        }
+
+        [HttpPost("/predict")]
+        [SwaggerOperation(
+            Summary = "Predicts sentiment",
+            Description = "Predicts sentiment",
+            OperationId = "Predict")
+        ]
+        public override ActionResult<Output> Handle([FromBody] Input input)
+        {
+            return Ok(_predictionEnginePool.Predict(input));
+        }
+    }
 }
